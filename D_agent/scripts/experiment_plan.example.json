@@ -1,0 +1,127 @@
+{
+  "defaults": {
+    "rename_with_label": true,
+    "reset_before_each_run": true,
+    "reset_delay_seconds": 3,
+    "repeats": 5,
+    "config": {
+      "ENABLE_TOOLS": true,
+      "ENABLE_SKILLS": true,
+      "ENABLE_PLANNING": true,
+      "ENABLE_MEMORY": true,
+      "ENABLE_SUMMARIZATION": true,
+      "ENABLE_LOOP": false,
+      "MONITOR_ONLY_MODE": false
+    }
+  },
+  "experiments": [
+    {
+      "label": "baseline_autonomy_no_loop",
+      "config": {
+        "MONITOR_ONLY_MODE": false,
+        "ENABLE_LOOP": false
+      }
+    },
+    {
+      "label": "baseline_monitor_no_loop",
+      "config": {
+        "MONITOR_ONLY_MODE": true,
+        "ENABLE_LOOP": false
+      }
+    },
+    {
+      "label": "loop_on_autonomy",
+      "config": {
+        "MONITOR_ONLY_MODE": false,
+        "ENABLE_LOOP": true
+      }
+    },
+    {
+      "label": "loop_on_monitor",
+      "config": {
+        "MONITOR_ONLY_MODE": true,
+        "ENABLE_LOOP": true
+      }
+    },
+    {
+      "label": "planning_off_no_loop_autonomy",
+      "config": {
+        "MONITOR_ONLY_MODE": false,
+        "ENABLE_PLANNING": false,
+        "ENABLE_LOOP": false
+      }
+    },
+    {
+      "label": "planning_off_no_loop_monitor",
+      "config": {
+        "MONITOR_ONLY_MODE": true,
+        "ENABLE_PLANNING": false,
+        "ENABLE_LOOP": false
+      }
+    },
+    {
+      "label": "planning_off_loop_autonomy",
+      "config": {
+        "MONITOR_ONLY_MODE": false,
+        "ENABLE_PLANNING": false,
+        "ENABLE_LOOP": true
+      }
+    },
+    {
+      "label": "planning_off_loop_monitor",
+      "config": {
+        "MONITOR_ONLY_MODE": true,
+        "ENABLE_PLANNING": false,
+        "ENABLE_LOOP": true
+      }
+    },
+    {
+      "label": "wo_summarization_autonomy",
+      "config": {
+        "MONITOR_ONLY_MODE": false,
+        "ENABLE_SUMMARIZATION": false,
+        "ENABLE_LOOP": false
+      }
+    },
+    {
+      "label": "wo_summarization_monitor",
+      "config": {
+        "MONITOR_ONLY_MODE": true,
+        "ENABLE_SUMMARIZATION": false,
+        "ENABLE_LOOP": false
+      }
+    },
+    {
+      "label": "wo_memory_autonomy",
+      "config": {
+        "MONITOR_ONLY_MODE": false,
+        "ENABLE_MEMORY": false,
+        "ENABLE_LOOP": false
+      }
+    },
+    {
+      "label": "wo_memory_monitor",
+      "config": {
+        "MONITOR_ONLY_MODE": true,
+        "ENABLE_MEMORY": false,
+        "ENABLE_LOOP": false
+      }
+    },
+    {
+      "label": "wo_skills_autonomy",
+      "config": {
+        "MONITOR_ONLY_MODE": false,
+        "ENABLE_SKILLS": false,
+        "ENABLE_LOOP": false
+      }
+    },
+    {
+      "label": "wo_skills_monitor",
+      "config": {
+        "MONITOR_ONLY_MODE": true,
+        "ENABLE_SKILLS": false,
+        "ENABLE_LOOP": false
+      }
+    }
+  ]
+}

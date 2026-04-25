@@ -325,6 +325,8 @@ def log_admin_event(event_type: str, details: dict, experiment_id: str | None = 
 
 
 def finalize_experiment(reason: str) -> str:
+    global scheduled_shutdown_experiment_id
+
     status = get_state("experiment_status", "idle")
     experiment_id = get_state("active_experiment_id")
     if status != "running":
@@ -340,6 +342,7 @@ def finalize_experiment(reason: str) -> str:
         )
         write_experiment_metadata(experiment_id)
         write_experiment_metrics(experiment_id)
+    scheduled_shutdown_experiment_id = None
     return "finished"
 
 
@@ -380,7 +383,11 @@ def schedule_experiment_shutdown(experiment_id: str, started_epoch: int, duratio
         deadline = started_epoch + duration_seconds
         remaining = max(0, deadline - time.time())
         time.sleep(remaining)
-        terminate_process_for_experiment("duration_elapsed")
+        active_id = get_state("active_experiment_id")
+        active_status = get_state("experiment_status", "idle")
+        if active_id != experiment_id or active_status != "running":
+            return
+        finalize_experiment("duration_elapsed")
 
     worker = threading.Thread(target=shutdown_worker, daemon=True)
     worker.start()

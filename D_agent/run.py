@@ -623,6 +623,9 @@ def main() -> None:
     reset_memory()
 
     experiment_id = str(experiment["experiment_id"])
+    run_seed = os.environ.get("BADHARNESS_RUN_SEED", "").strip()
+    if run_seed:
+        update_experiment_metadata({"run_seed": run_seed}, experiment_id)
     monitor_proc = None
 
     try:
