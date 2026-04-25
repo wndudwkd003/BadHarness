@@ -1,4 +1,4 @@
-# BadHarness: A CTF-Based Simulation for Evaluating LLM Agent Capabilities
+# BadHarness: A CTF-Based Simulation for Evaluating LLM Agent Harness Capabilities
 
 
 This repository contains a monitor-driven reactive agent framework for a controlled cyber range experiment.
