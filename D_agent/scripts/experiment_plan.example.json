@@ -3,124 +3,173 @@
     "rename_with_label": true,
     "reset_before_each_run": true,
     "reset_delay_seconds": 3,
-    "repeats": 5,
+    "repeats": 50,
     "config": {
       "ENABLE_TOOLS": true,
       "ENABLE_SKILLS": true,
       "ENABLE_PLANNING": true,
       "ENABLE_MEMORY": true,
       "ENABLE_SUMMARIZATION": true,
-      "ENABLE_LOOP": false,
+      "ENABLE_JUDGE": true,
+      "ENABLE_LOOP": true,
       "MONITOR_ONLY_MODE": false
     }
   },
   "experiments": [
     {
-      "label": "baseline_autonomy_no_loop",
+      "label": "baseline_autonomous",
+      "config": {
+        "MONITOR_ONLY_MODE": false
+      }
+    },
+    {
+      "label": "baseline_reactive",
+      "config": {
+        "MONITOR_ONLY_MODE": true
+      }
+    },
+    {
+      "label": "wo_loop_autonomous",
       "config": {
         "MONITOR_ONLY_MODE": false,
         "ENABLE_LOOP": false
       }
     },
     {
-      "label": "baseline_monitor_no_loop",
+      "label": "wo_loop_reactive",
       "config": {
         "MONITOR_ONLY_MODE": true,
         "ENABLE_LOOP": false
       }
     },
     {
-      "label": "loop_on_autonomy",
+      "label": "planning_off_autonomous",
       "config": {
         "MONITOR_ONLY_MODE": false,
-        "ENABLE_LOOP": true
+        "ENABLE_PLANNING": false
       }
     },
     {
-      "label": "loop_on_monitor",
+      "label": "planning_off_reactive",
       "config": {
         "MONITOR_ONLY_MODE": true,
-        "ENABLE_LOOP": true
+        "ENABLE_PLANNING": false
       }
     },
     {
-      "label": "planning_off_no_loop_autonomy",
+      "label": "planning_off_wo_loop_autonomous",
       "config": {
         "MONITOR_ONLY_MODE": false,
+        "ENABLE_PLANNING": false,
+        "ENABLE_LOOP": false
+      }
+    },
+    {
+      "label": "planning_off_wo_loop_reactive",
+      "config": {
+        "MONITOR_ONLY_MODE": true,
         "ENABLE_PLANNING": false,
         "ENABLE_LOOP": false
       }
     },
     {
-      "label": "planning_off_no_loop_monitor",
-      "config": {
-        "MONITOR_ONLY_MODE": true,
-        "ENABLE_PLANNING": false,
-        "ENABLE_LOOP": false
-      }
-    },
-    {
-      "label": "planning_off_loop_autonomy",
+      "label": "wo_summarization_autonomous",
       "config": {
         "MONITOR_ONLY_MODE": false,
-        "ENABLE_PLANNING": false,
-        "ENABLE_LOOP": true
+        "ENABLE_SUMMARIZATION": false
       }
     },
     {
-      "label": "planning_off_loop_monitor",
+      "label": "wo_summarization_reactive",
       "config": {
         "MONITOR_ONLY_MODE": true,
-        "ENABLE_PLANNING": false,
-        "ENABLE_LOOP": true
+        "ENABLE_SUMMARIZATION": false
       }
     },
     {
-      "label": "wo_summarization_autonomy",
+      "label": "wo_judge_autonomous",
       "config": {
         "MONITOR_ONLY_MODE": false,
-        "ENABLE_SUMMARIZATION": false,
-        "ENABLE_LOOP": false
+        "ENABLE_JUDGE": false
       }
     },
     {
-      "label": "wo_summarization_monitor",
+      "label": "wo_judge_reactive",
       "config": {
         "MONITOR_ONLY_MODE": true,
-        "ENABLE_SUMMARIZATION": false,
-        "ENABLE_LOOP": false
+        "ENABLE_JUDGE": false
       }
     },
     {
-      "label": "wo_memory_autonomy",
+      "label": "wo_judge_wo_loop_autonomous",
       "config": {
         "MONITOR_ONLY_MODE": false,
-        "ENABLE_MEMORY": false,
+        "ENABLE_JUDGE": false,
         "ENABLE_LOOP": false
       }
     },
     {
-      "label": "wo_memory_monitor",
+      "label": "wo_judge_wo_loop_reactive",
       "config": {
         "MONITOR_ONLY_MODE": true,
-        "ENABLE_MEMORY": false,
+        "ENABLE_JUDGE": false,
         "ENABLE_LOOP": false
       }
     },
     {
-      "label": "wo_skills_autonomy",
+      "label": "wo_signal_selector_autonomous",
       "config": {
         "MONITOR_ONLY_MODE": false,
-        "ENABLE_SKILLS": false,
-        "ENABLE_LOOP": false
+        "ALLOWED_SKILLS": [
+          "reconnaissance",
+          "experiment_start",
+          "http_enumeration",
+          "admin_traffic_interception",
+          "mitm_with_bettercap",
+          "flag_submission"
+        ]
       }
     },
     {
-      "label": "wo_skills_monitor",
+      "label": "wo_signal_selector_reactive",
       "config": {
         "MONITOR_ONLY_MODE": true,
-        "ENABLE_SKILLS": false,
-        "ENABLE_LOOP": false
+        "ALLOWED_SKILLS": [
+          "reconnaissance",
+          "experiment_start",
+          "http_enumeration",
+          "admin_traffic_interception",
+          "mitm_with_bettercap",
+          "flag_submission"
+        ]
+      }
+    },
+    {
+      "label": "wo_memory_autonomous",
+      "config": {
+        "MONITOR_ONLY_MODE": false,
+        "ENABLE_MEMORY": false
+      }
+    },
+    {
+      "label": "wo_memory_reactive",
+      "config": {
+        "MONITOR_ONLY_MODE": true,
+        "ENABLE_MEMORY": false
+      }
+    },
+    {
+      "label": "wo_skills_autonomous",
+      "config": {
+        "MONITOR_ONLY_MODE": false,
+        "ENABLE_SKILLS": false
+      }
+    },
+    {
+      "label": "wo_skills_reactive",
+      "config": {
+        "MONITOR_ONLY_MODE": true,
+        "ENABLE_SKILLS": false
       }
     }
   ]

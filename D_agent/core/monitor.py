@@ -35,6 +35,26 @@ from core.workspace import (
 )
 
 
+class MonitorShutdown(Exception):
+    """Raised when the monitor process receives a shutdown signal."""
+
+
+def _handle_monitor_shutdown(signum: int, _frame: Any) -> None:
+    signal_name = signal.Signals(signum).name
+    try:
+        _append_jsonl(
+            get_monitor_jsonl_path(),
+            {
+                "time": _now(),
+                "type": "monitor_shutdown_signal",
+                "signal": signal_name,
+            },
+        )
+    except Exception:
+        pass
+    raise MonitorShutdown(f"monitor received {signal_name}")
+
+
 def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -830,8 +850,13 @@ def claim_monitor_signal(
 def monitor_loop() -> None:
     bettercap_proc = None
     tshark_proc = None
+    previous_handlers: dict[int, Any] = {}
 
     try:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            previous_handlers[sig] = signal.getsignal(sig)
+            signal.signal(sig, _handle_monitor_shutdown)
+
         bettercap_proc = start_bettercap_monitor()
         tshark_proc = start_live_tshark_monitor()
 
@@ -900,11 +925,16 @@ def monitor_loop() -> None:
             },
         )
 
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, MonitorShutdown):
         pass
     finally:
         stop_process_group(tshark_proc)
         stop_bettercap_monitor(bettercap_proc)
+        for sig, handler in previous_handlers.items():
+            try:
+                signal.signal(sig, handler)
+            except Exception:
+                pass
 
 
 def start_monitor_process(experiment_id: str, sudo_password: str | None = None) -> subprocess.Popen | None:
@@ -938,6 +968,7 @@ def start_monitor_process(experiment_id: str, sudo_password: str | None = None) 
         stderr=subprocess.DEVNULL,
         text=True,
         env=env,
+        start_new_session=True,
     )
 
 
@@ -945,9 +976,12 @@ def stop_monitor_process(proc: subprocess.Popen | None) -> None:
     if proc is None:
         return
 
+    if proc.poll() is not None:
+        return
+
     try:
-        proc.terminate()
-        proc.wait(timeout=5)
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(timeout=10)
     except Exception:
         try:
             proc.kill()

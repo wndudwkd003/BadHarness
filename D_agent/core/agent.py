@@ -5,6 +5,7 @@ import json
 import re
 
 from configs.config import (
+    ENABLE_JUDGE,
     ALLOWED_SKILLS,
     ENABLE_LOOP,
     ENABLE_MEMORY,
@@ -46,6 +47,7 @@ def build_base_prompt() -> str:
 planning={ENABLE_PLANNING}
 memory={ENABLE_MEMORY}
 summarization={ENABLE_SUMMARIZATION}
+judge={ENABLE_JUDGE}
 loop={ENABLE_LOOP}
 tools={ENABLE_TOOLS}
 skills={ENABLE_SKILLS}
@@ -758,13 +760,17 @@ def run_cycle(last_result: str, global_plan: str, detailed_plan: str) -> tuple[s
 
     judge_memory = merged_memory or new_summary or memory
 
-    successful, reason = judge_result(
-        judge_system_prompt,
-        global_plan,
-        detailed_plan,
-        judge_memory,
-        execution_result,
-    )
+    if ENABLE_JUDGE:
+        successful, reason = judge_result(
+            judge_system_prompt,
+            global_plan,
+            detailed_plan,
+            judge_memory,
+            execution_result,
+        )
+    else:
+        successful, reason = classify_result(execution_result)
+        reason = f"[judge disabled] {reason}"
     successful, reason = enforce_plan_completion(detailed_plan, execution_result, successful, reason)
     append_history("JUDGMENT", reason)
 

@@ -27,6 +27,7 @@ CONFIG_PATH = ROOT_DIR / "configs" / "config.py"
 RUN_PATH = ROOT_DIR / "run.py"
 EXPERIMENTS_DIR = ROOT_DIR / "experiments"
 REPORTS_DIR = ROOT_DIR / "reports" / "plan_runs"
+C_SERVER_EXPERIMENTS_DIR = ROOT_DIR.parent / "C_Server" / "experiments"
 
 
 @dataclass
@@ -143,6 +144,76 @@ def _sanitize_filename(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip()).strip("_") or "group"
 
 
+def _log_indicates_success(log_path: Path) -> bool:
+    if not log_path.exists():
+        return False
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return False
+    return ("[AGENT STOP]" in text) or ("EXPERIMENT RESULT" in text)
+
+
+def _row_indicates_completed(entry: dict[str, Any], log_path: Path | None = None) -> tuple[bool, dict[str, Any]]:
+    normalized: dict[str, Any] = {}
+
+    experiment_path_text = str(entry.get("experiment_path", "") or "").strip()
+    experiment_path = Path(experiment_path_text) if experiment_path_text else None
+    metadata = _safe_read_json((experiment_path / "metadata.json")) if experiment_path and experiment_path.exists() else {}
+    report_summary = (
+        _safe_read_json((experiment_path / "analysis" / "report_summary.json"))
+        if experiment_path and experiment_path.exists()
+        else {}
+    )
+
+    experiment_id = str(entry.get("experiment_id", "") or metadata.get("experiment_id", "") or "").strip()
+    c_server_experiment_path, c_server_metrics_path = _resolve_c_server_artifacts(experiment_id)
+    metrics = _safe_read_json(c_server_metrics_path) if c_server_metrics_path else {}
+
+    if metadata:
+        normalized.update(
+            {
+                "experiment_id": experiment_id,
+                "experiment_path": str(experiment_path.resolve()) if experiment_path else "",
+                "c_server_experiment_path": str(c_server_experiment_path.resolve()) if c_server_experiment_path else "",
+                "c_server_metrics_path": str(c_server_metrics_path.resolve()) if c_server_metrics_path else "",
+                "elapsed_seconds": int(report_summary.get("elapsed_seconds", metadata.get("elapsed_seconds", 0)) or 0),
+                "correct_flag_submissions": int(report_summary.get("correct_flag_submissions", metadata.get("correct_flag_submissions", 0)) or 0),
+                "incorrect_flag_submissions": int(report_summary.get("incorrect_flag_submissions", metadata.get("incorrect_flag_submissions", 0)) or 0),
+                "duplicate_flag_submissions": int(report_summary.get("duplicate_flag_submissions", metadata.get("duplicate_flag_submissions", 0)) or 0),
+                "invalid_flag_submissions": int(report_summary.get("invalid_flag_submissions", metadata.get("invalid_flag_submissions", 0)) or 0),
+                "submit_flag_attempts": int(report_summary.get("submit_flag_attempts", metadata.get("submit_flag_attempts", 0)) or 0),
+                "submit_flag_errors": int(report_summary.get("submit_flag_errors", metadata.get("submit_flag_errors", 0)) or 0),
+                "processed_triggers": int(report_summary.get("processed_triggers", metadata.get("processed_triggers", 0)) or 0),
+                "trigger_efficiency": float(report_summary.get("trigger_efficiency", metadata.get("trigger_efficiency", 0)) or 0),
+                "total_tokens": int(report_summary.get("total_tokens", metadata.get("total_tokens", 0)) or 0),
+            }
+        )
+        normalized["attack_failure_count"] = (
+            int(normalized.get("incorrect_flag_submissions", 0))
+            + int(normalized.get("duplicate_flag_submissions", 0))
+            + int(normalized.get("invalid_flag_submissions", 0))
+            + int(normalized.get("submit_flag_errors", 0))
+        )
+
+    metadata_status = str(metadata.get("stop_reason", "") or "").strip()
+    metrics_status = str(metrics.get("status", "") or "").strip()
+    has_completion_artifact = bool(metadata) or bool(report_summary) or bool(metrics)
+    log_success = _log_indicates_success(log_path) if log_path else False
+
+    completed = False
+    if metadata and metadata_status:
+        completed = True
+    elif metrics and metrics_status in {"finished", "ok"}:
+        completed = True
+    elif has_completion_artifact and log_success:
+        completed = True
+    elif log_success and experiment_id:
+        completed = True
+
+    return completed, normalized
+
+
 def _latest_experiment_dir(before: set[str]) -> Path | None:
     current = {path.name: path for path in EXPERIMENTS_DIR.iterdir() if path.is_dir()}
     new_names = [name for name in current if name not in before]
@@ -151,6 +222,16 @@ def _latest_experiment_dir(before: set[str]) -> Path | None:
     new_paths = [current[name] for name in new_names]
     new_paths.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     return new_paths[0]
+
+
+def _resolve_c_server_artifacts(experiment_id: str | None) -> tuple[Path | None, Path | None]:
+    if not experiment_id:
+        return None, None
+    experiment_dir = C_SERVER_EXPERIMENTS_DIR / experiment_id
+    metrics_path = experiment_dir / "metrics.json"
+    if not experiment_dir.exists():
+        return None, None
+    return experiment_dir, metrics_path if metrics_path.exists() else None
 
 
 def _rename_experiment_dir(path: Path, label: str) -> Path:
@@ -307,6 +388,7 @@ def _run_single_experiment(
     duplicate_flag_submissions = int(report_summary.get("duplicate_flag_submissions", metadata.get("duplicate_flag_submissions", 0)) or 0)
     invalid_flag_submissions = int(report_summary.get("invalid_flag_submissions", metadata.get("invalid_flag_submissions", 0)) or 0)
     submit_flag_errors = int(report_summary.get("submit_flag_errors", metadata.get("submit_flag_errors", 0)) or 0)
+    c_server_experiment_path, c_server_metrics_path = _resolve_c_server_artifacts(experiment_id)
     return {
         "order": index,
         "total": total,
@@ -322,6 +404,8 @@ def _run_single_experiment(
         "experiment_id": experiment_id or "",
         "experiment_path": str(renamed_path.resolve()) if renamed_path else "",
         "raw_experiment_path": str(experiment_path.resolve()) if experiment_path else "",
+        "c_server_experiment_path": str(c_server_experiment_path.resolve()) if c_server_experiment_path else "",
+        "c_server_metrics_path": str(c_server_metrics_path.resolve()) if c_server_metrics_path else "",
         "rename_with_label": rename_with_label,
         "reset_before_run": reset_before_run,
         "reset_delay_seconds": reset_delay_seconds,
@@ -463,15 +547,358 @@ def _print_run_summary(result: dict[str, Any]) -> None:
         print(f"  -> log={log_path}")
 
 
+def _build_manifest(
+    *,
+    plan_path: Path,
+    output_dir: Path,
+    rename_with_label: bool,
+    reset_before_each_run: bool,
+    reset_delay_seconds: float,
+    continue_on_error: bool,
+    experiment_rows: list[dict[str, Any]],
+    expanded_runs: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    group_summary = _build_group_summary(experiment_rows)
+    manifest = {
+        "plan_path": str(plan_path),
+        "output_dir": str(output_dir),
+        "restored_config_path": str(CONFIG_PATH),
+        "rename_with_label": rename_with_label,
+        "reset_before_each_run": reset_before_each_run,
+        "reset_delay_seconds": reset_delay_seconds,
+        "continue_on_error": bool(continue_on_error),
+        "experiment_count": len(experiment_rows),
+        "planned_run_count": len(expanded_runs),
+        "group_summary": group_summary,
+        "experiments": experiment_rows,
+    }
+    return manifest, group_summary
+
+
+def _build_scheduled_run_state(
+    expanded_runs: list[dict[str, Any]],
+    experiment_rows: list[dict[str, Any]],
+    active_run: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    completed_by_order = {
+        int(row.get("order", 0) or 0): row
+        for row in experiment_rows
+        if int(row.get("order", 0) or 0) > 0
+    }
+    active_order = int(active_run.get("order", 0) or 0) if active_run else 0
+
+    scheduled_state: list[dict[str, Any]] = []
+    for index, item in enumerate(expanded_runs, start=1):
+        label = str(item.get("label") or item.get("name") or f"experiment_{index}")
+        base_entry = {
+            "order": index,
+            "name": str(item.get("name") or label),
+            "label": label,
+            "config": dict(item.get("config", {})),
+            "repeat_index": int(item.get("repeat_index", 0) or 0),
+            "repeat_total": int(item.get("repeat_total", 0) or 0),
+            "run_seed": item.get("run_seed"),
+        }
+
+        if index in completed_by_order:
+            row = completed_by_order[index]
+            base_entry.update(
+                {
+                    "status": "completed" if int(row.get("returncode", 1)) == 0 else "failed",
+                    "returncode": int(row.get("returncode", 1) or 1),
+                    "started_at": row.get("started_at", ""),
+                    "finished_at": row.get("finished_at", ""),
+                    "experiment_id": row.get("experiment_id", ""),
+                    "experiment_path": row.get("experiment_path", ""),
+                    "c_server_experiment_path": row.get("c_server_experiment_path", ""),
+                    "c_server_metrics_path": row.get("c_server_metrics_path", ""),
+                    "elapsed_seconds": row.get("elapsed_seconds", 0),
+                    "correct_flag_submissions": row.get("correct_flag_submissions", 0),
+                    "incorrect_flag_submissions": row.get("incorrect_flag_submissions", 0),
+                    "duplicate_flag_submissions": row.get("duplicate_flag_submissions", 0),
+                    "invalid_flag_submissions": row.get("invalid_flag_submissions", 0),
+                    "submit_flag_attempts": row.get("submit_flag_attempts", 0),
+                    "submit_flag_errors": row.get("submit_flag_errors", 0),
+                    "attack_failure_count": row.get("attack_failure_count", 0),
+                    "processed_triggers": row.get("processed_triggers", 0),
+                    "trigger_efficiency": row.get("trigger_efficiency", 0),
+                    "total_tokens": row.get("total_tokens", 0),
+                    "log_path": row.get("log_path", ""),
+                }
+            )
+        elif active_run and index == active_order:
+            base_entry.update(
+                {
+                    "status": "running",
+                    "returncode": "",
+                    "started_at": active_run.get("started_at", ""),
+                    "finished_at": "",
+                    "experiment_id": "",
+                    "experiment_path": "",
+                    "c_server_experiment_path": "",
+                    "c_server_metrics_path": "",
+                    "elapsed_seconds": "",
+                    "correct_flag_submissions": "",
+                    "incorrect_flag_submissions": "",
+                    "duplicate_flag_submissions": "",
+                    "invalid_flag_submissions": "",
+                    "submit_flag_attempts": "",
+                    "submit_flag_errors": "",
+                    "attack_failure_count": "",
+                    "processed_triggers": "",
+                    "trigger_efficiency": "",
+                    "total_tokens": "",
+                    "log_path": active_run.get("log_path", ""),
+                }
+            )
+        else:
+            base_entry.update(
+                {
+                    "status": "pending",
+                    "returncode": "",
+                    "started_at": "",
+                    "finished_at": "",
+                    "experiment_id": "",
+                    "experiment_path": "",
+                    "c_server_experiment_path": "",
+                    "c_server_metrics_path": "",
+                    "elapsed_seconds": "",
+                    "correct_flag_submissions": "",
+                    "incorrect_flag_submissions": "",
+                    "duplicate_flag_submissions": "",
+                    "invalid_flag_submissions": "",
+                    "submit_flag_attempts": "",
+                    "submit_flag_errors": "",
+                    "attack_failure_count": "",
+                    "processed_triggers": "",
+                    "trigger_efficiency": "",
+                    "total_tokens": "",
+                    "log_path": "",
+                }
+            )
+        scheduled_state.append(base_entry)
+    return scheduled_state
+
+
+def _persist_progress(
+    *,
+    plan_path: Path,
+    output_dir: Path,
+    rename_with_label: bool,
+    reset_before_each_run: bool,
+    reset_delay_seconds: float,
+    continue_on_error: bool,
+    experiment_rows: list[dict[str, Any]],
+    expanded_runs: list[dict[str, Any]],
+    active_run: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    manifest, group_summary = _build_manifest(
+        plan_path=plan_path,
+        output_dir=output_dir,
+        rename_with_label=rename_with_label,
+        reset_before_each_run=reset_before_each_run,
+        reset_delay_seconds=reset_delay_seconds,
+        continue_on_error=continue_on_error,
+        experiment_rows=experiment_rows,
+        expanded_runs=expanded_runs,
+    )
+
+    (output_dir / "run_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output_dir / "group_summary.json").write_text(json.dumps(group_summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    scheduled_state = _build_scheduled_run_state(expanded_runs, experiment_rows, active_run)
+    (output_dir / "scheduled_runs.json").write_text(
+        json.dumps(scheduled_state, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    _write_csv(
+        output_dir / "run_manifest.csv",
+        [
+            {
+                "order": row.get("order", ""),
+                "name": row.get("name", ""),
+                "label": row.get("label", ""),
+                "repeat_index": row.get("repeat_index", ""),
+                "repeat_total": row.get("repeat_total", ""),
+                "run_seed": row.get("run_seed", ""),
+                "returncode": row.get("returncode", ""),
+                "experiment_id": row.get("experiment_id", ""),
+                "experiment_path": row.get("experiment_path", ""),
+                "c_server_experiment_path": row.get("c_server_experiment_path", ""),
+                "c_server_metrics_path": row.get("c_server_metrics_path", ""),
+                "elapsed_seconds": row.get("elapsed_seconds", 0),
+                "correct_flag_submissions": row.get("correct_flag_submissions", 0),
+                "incorrect_flag_submissions": row.get("incorrect_flag_submissions", 0),
+                "duplicate_flag_submissions": row.get("duplicate_flag_submissions", 0),
+                "invalid_flag_submissions": row.get("invalid_flag_submissions", 0),
+                "submit_flag_attempts": row.get("submit_flag_attempts", 0),
+                "submit_flag_errors": row.get("submit_flag_errors", 0),
+                "attack_failure_count": row.get("attack_failure_count", 0),
+                "processed_triggers": row.get("processed_triggers", 0),
+                "log_path": row.get("log_path", ""),
+            }
+            for row in experiment_rows
+        ],
+        [
+            "order",
+            "name",
+            "label",
+            "repeat_index",
+            "repeat_total",
+            "run_seed",
+            "returncode",
+            "experiment_id",
+            "experiment_path",
+            "c_server_experiment_path",
+            "c_server_metrics_path",
+            "elapsed_seconds",
+            "correct_flag_submissions",
+            "incorrect_flag_submissions",
+            "duplicate_flag_submissions",
+            "invalid_flag_submissions",
+            "submit_flag_attempts",
+            "submit_flag_errors",
+            "attack_failure_count",
+            "processed_triggers",
+            "log_path",
+        ],
+    )
+
+    _write_csv(
+        output_dir / "group_summary.csv",
+        group_summary,
+        [
+            "label",
+            "name",
+            "repeat_count",
+            "success_count",
+            "system_failure_runs",
+            "success_rate",
+            "avg_elapsed_seconds",
+            "std_elapsed_seconds",
+            "avg_correct_flag_submissions",
+            "std_correct_flag_submissions",
+            "avg_incorrect_flag_submissions",
+            "std_incorrect_flag_submissions",
+            "avg_duplicate_flag_submissions",
+            "avg_invalid_flag_submissions",
+            "avg_submit_flag_attempts",
+            "avg_submit_flag_errors",
+            "avg_attack_failure_count",
+            "std_attack_failure_count",
+            "avg_processed_triggers",
+            "avg_trigger_efficiency",
+            "avg_total_tokens",
+            "experiment_paths",
+        ],
+    )
+
+    mapping_rows = [
+        {
+            "order": row.get("order", ""),
+            "label": row.get("label", ""),
+            "repeat_index": row.get("repeat_index", ""),
+            "repeat_total": row.get("repeat_total", ""),
+            "experiment_id": row.get("experiment_id", ""),
+            "d_agent_experiment_path": row.get("experiment_path", ""),
+            "c_server_experiment_path": row.get("c_server_experiment_path", ""),
+            "c_server_metrics_path": row.get("c_server_metrics_path", ""),
+            "log_path": row.get("log_path", ""),
+            "returncode": row.get("returncode", ""),
+        }
+        for row in experiment_rows
+    ]
+    (output_dir / "experiment_path_mapping.json").write_text(
+        json.dumps(mapping_rows, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    _write_csv(
+        output_dir / "experiment_path_mapping.csv",
+        mapping_rows,
+        [
+            "order",
+            "label",
+            "repeat_index",
+            "repeat_total",
+            "experiment_id",
+            "d_agent_experiment_path",
+            "c_server_experiment_path",
+            "c_server_metrics_path",
+            "log_path",
+            "returncode",
+        ],
+    )
+
+    groups_dir = output_dir / "groups"
+    groups_dir.mkdir(parents=True, exist_ok=True)
+    grouped_rows: dict[str, list[dict[str, Any]]] = {}
+    for row in experiment_rows:
+        grouped_rows.setdefault(str(row.get("label", row.get("name", ""))), []).append(row)
+    for summary_row in group_summary:
+        label = str(summary_row.get("label", "group"))
+        payload = {
+            "label": label,
+            "summary": summary_row,
+            "runs": grouped_rows.get(label, []),
+        }
+        (groups_dir / f"{_sanitize_filename(label)}.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    return manifest, group_summary
+
+
 def _load_resume_state(output_dir: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
     manifest_path = output_dir / "run_manifest.json"
     scheduled_runs_path = output_dir / "scheduled_runs.json"
+    logs_dir = output_dir / "logs"
+    scheduled_runs = _safe_read_json_any(scheduled_runs_path, None)
+    if scheduled_runs is not None and not isinstance(scheduled_runs, list):
+        scheduled_runs = None
+
     if not manifest_path.exists():
-        return [], None
+        if scheduled_runs is None:
+            return [], None
+        resumed_rows: list[dict[str, Any]] = []
+        for index, item in enumerate(scheduled_runs, start=1):
+            label = str(item.get("label") or item.get("name") or f"experiment_{index}")
+            log_path = logs_dir / f"{index:02d}_{_slugify(label)}.log"
+            completed, normalized = _row_indicates_completed(item, log_path)
+            if not completed:
+                break
+            resumed_rows.append(
+                {
+                    "order": index,
+                    "name": str(item.get("name") or label),
+                    "label": label,
+                    "repeat_index": int(item.get("repeat_index", 0) or 0),
+                    "repeat_total": int(item.get("repeat_total", 0) or 0),
+                    "run_seed": item.get("run_seed"),
+                    "returncode": 0,
+                    "log_path": str(log_path),
+                    "experiment_id": normalized.get("experiment_id", str(item.get("experiment_id", "") or "")),
+                    "experiment_path": normalized.get("experiment_path", str(item.get("experiment_path", "") or "")),
+                    "c_server_experiment_path": normalized.get("c_server_experiment_path", str(item.get("c_server_experiment_path", "") or "")),
+                    "c_server_metrics_path": normalized.get("c_server_metrics_path", str(item.get("c_server_metrics_path", "") or "")),
+                    "elapsed_seconds": normalized.get("elapsed_seconds", item.get("elapsed_seconds", 0)),
+                    "correct_flag_submissions": normalized.get("correct_flag_submissions", item.get("correct_flag_submissions", 0)),
+                    "incorrect_flag_submissions": normalized.get("incorrect_flag_submissions", item.get("incorrect_flag_submissions", 0)),
+                    "duplicate_flag_submissions": normalized.get("duplicate_flag_submissions", item.get("duplicate_flag_submissions", 0)),
+                    "invalid_flag_submissions": normalized.get("invalid_flag_submissions", item.get("invalid_flag_submissions", 0)),
+                    "submit_flag_attempts": normalized.get("submit_flag_attempts", item.get("submit_flag_attempts", 0)),
+                    "submit_flag_errors": normalized.get("submit_flag_errors", item.get("submit_flag_errors", 0)),
+                    "attack_failure_count": normalized.get("attack_failure_count", item.get("attack_failure_count", 0)),
+                    "processed_triggers": normalized.get("processed_triggers", item.get("processed_triggers", 0)),
+                    "trigger_efficiency": normalized.get("trigger_efficiency", item.get("trigger_efficiency", 0)),
+                    "total_tokens": normalized.get("total_tokens", item.get("total_tokens", 0)),
+                }
+            )
+        return resumed_rows, scheduled_runs
 
     manifest = _safe_read_json_any(manifest_path, {})
     if not isinstance(manifest, dict):
-        return [], None
+        return [], scheduled_runs
 
     previous_rows = manifest.get("experiments", [])
     if not isinstance(previous_rows, list):
@@ -485,9 +912,6 @@ def _load_resume_state(output_dir: Path) -> tuple[list[dict[str, Any]], list[dic
             break
         successful_prefix.append(row)
 
-    scheduled_runs = _safe_read_json_any(scheduled_runs_path, None)
-    if scheduled_runs is not None and not isinstance(scheduled_runs, list):
-        scheduled_runs = None
     return successful_prefix, scheduled_runs
 
 
@@ -549,6 +973,17 @@ def main() -> int:
     try:
         experiment_rows = list(resumed_rows)
         start_offset = len(resumed_rows)
+        _persist_progress(
+            plan_path=plan_path,
+            output_dir=output_dir,
+            rename_with_label=rename_with_label,
+            reset_before_each_run=reset_before_each_run,
+            reset_delay_seconds=reset_delay_seconds,
+            continue_on_error=bool(args.continue_on_error),
+            experiment_rows=experiment_rows,
+            expanded_runs=expanded_runs,
+            active_run=None,
+        )
         if start_offset:
             print(f"[resume] reusing {start_offset} completed runs from {output_dir}")
 
@@ -563,6 +998,21 @@ def main() -> int:
             run_reset_delay = float(item.get("reset_delay_seconds", reset_delay_seconds) or 0.0)
 
             print(f"[{index}/{len(expanded_runs)}] running {label} repeat {item['repeat_index']}/{item['repeat_total']}")
+            _persist_progress(
+                plan_path=plan_path,
+                output_dir=output_dir,
+                rename_with_label=rename_with_label,
+                reset_before_each_run=reset_before_each_run,
+                reset_delay_seconds=reset_delay_seconds,
+                continue_on_error=bool(args.continue_on_error),
+                experiment_rows=experiment_rows,
+                expanded_runs=expanded_runs,
+                active_run={
+                    "order": index,
+                    "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "log_path": str(logs_dir / f"{index:02d}_{_slugify(label)}.log"),
+                },
+            )
             result = _run_single_experiment(
                 index=index,
                 total=len(expanded_runs),
@@ -579,121 +1029,34 @@ def main() -> int:
                 reset_delay_seconds=run_reset_delay,
             )
             experiment_rows.append(result)
+            _persist_progress(
+                plan_path=plan_path,
+                output_dir=output_dir,
+                rename_with_label=rename_with_label,
+                reset_before_each_run=reset_before_each_run,
+                reset_delay_seconds=reset_delay_seconds,
+                continue_on_error=bool(args.continue_on_error),
+                experiment_rows=experiment_rows,
+                expanded_runs=expanded_runs,
+                active_run=None,
+            )
             _print_run_summary(result)
             if result["returncode"] != 0 and not args.continue_on_error:
                 break
     finally:
         CONFIG_PATH.write_text(original_config, encoding="utf-8")
 
-    group_summary = _build_group_summary(experiment_rows)
-    manifest = {
-        "plan_path": str(plan_path),
-        "output_dir": str(output_dir),
-        "restored_config_path": str(CONFIG_PATH),
-        "rename_with_label": rename_with_label,
-        "reset_before_each_run": reset_before_each_run,
-        "reset_delay_seconds": reset_delay_seconds,
-        "continue_on_error": bool(args.continue_on_error),
-        "experiment_count": len(experiment_rows),
-        "planned_run_count": len(expanded_runs),
-        "group_summary": group_summary,
-        "experiments": experiment_rows,
-    }
-    (output_dir / "run_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    (output_dir / "group_summary.json").write_text(json.dumps(group_summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    _write_csv(
-        output_dir / "run_manifest.csv",
-        [
-            {
-                "order": row["order"],
-                "name": row["name"],
-                "label": row["label"],
-                "repeat_index": row["repeat_index"],
-                "repeat_total": row["repeat_total"],
-                "run_seed": row["run_seed"],
-                "returncode": row["returncode"],
-                "experiment_id": row["experiment_id"],
-                "experiment_path": row["experiment_path"],
-                "elapsed_seconds": row["elapsed_seconds"],
-                "correct_flag_submissions": row["correct_flag_submissions"],
-                "incorrect_flag_submissions": row["incorrect_flag_submissions"],
-                "duplicate_flag_submissions": row["duplicate_flag_submissions"],
-                "invalid_flag_submissions": row["invalid_flag_submissions"],
-                "submit_flag_attempts": row["submit_flag_attempts"],
-                "submit_flag_errors": row["submit_flag_errors"],
-                "attack_failure_count": row["attack_failure_count"],
-                "processed_triggers": row["processed_triggers"],
-                "log_path": row["log_path"],
-            }
-            for row in experiment_rows
-        ],
-        [
-            "order",
-            "name",
-            "label",
-            "repeat_index",
-            "repeat_total",
-            "run_seed",
-            "returncode",
-            "experiment_id",
-            "experiment_path",
-            "elapsed_seconds",
-            "correct_flag_submissions",
-            "incorrect_flag_submissions",
-            "duplicate_flag_submissions",
-            "invalid_flag_submissions",
-            "submit_flag_attempts",
-            "submit_flag_errors",
-            "attack_failure_count",
-            "processed_triggers",
-            "log_path",
-        ],
+    manifest, _ = _persist_progress(
+        plan_path=plan_path,
+        output_dir=output_dir,
+        rename_with_label=rename_with_label,
+        reset_before_each_run=reset_before_each_run,
+        reset_delay_seconds=reset_delay_seconds,
+        continue_on_error=bool(args.continue_on_error),
+        experiment_rows=experiment_rows,
+        expanded_runs=expanded_runs,
+        active_run=None,
     )
-    _write_csv(
-        output_dir / "group_summary.csv",
-        group_summary,
-        [
-            "label",
-            "name",
-            "repeat_count",
-            "success_count",
-            "system_failure_runs",
-            "success_rate",
-            "avg_elapsed_seconds",
-            "std_elapsed_seconds",
-            "avg_correct_flag_submissions",
-            "std_correct_flag_submissions",
-            "avg_incorrect_flag_submissions",
-            "std_incorrect_flag_submissions",
-            "avg_duplicate_flag_submissions",
-            "avg_invalid_flag_submissions",
-            "avg_submit_flag_attempts",
-            "avg_submit_flag_errors",
-            "avg_attack_failure_count",
-            "std_attack_failure_count",
-            "avg_processed_triggers",
-            "avg_trigger_efficiency",
-            "avg_total_tokens",
-            "experiment_paths",
-        ],
-    )
-
-    groups_dir = output_dir / "groups"
-    groups_dir.mkdir(parents=True, exist_ok=True)
-    grouped_rows: dict[str, list[dict[str, Any]]] = {}
-    for row in experiment_rows:
-        grouped_rows.setdefault(str(row.get("label", row.get("name", ""))), []).append(row)
-    for summary_row in group_summary:
-        label = str(summary_row.get("label", "group"))
-        payload = {
-            "label": label,
-            "summary": summary_row,
-            "runs": grouped_rows.get(label, []),
-        }
-        (groups_dir / f"{_sanitize_filename(label)}.json").write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
 
     print(json.dumps(manifest, ensure_ascii=False, indent=2))
     return 0 if all(row["returncode"] == 0 for row in experiment_rows) else 1

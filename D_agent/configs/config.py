@@ -4,7 +4,8 @@ from __future__ import annotations
 TARGET_HOST = "192.168.0.17"
 TARGET_PORT = "7587"
 
-LLM_BASE_URL = "117.16.153.230:1346/v1/chat/completions" # Fill in your LLM endpoint here
+LLM_BASE_URL = "http://117.16.153.230:1346/v1/chat/completions"
+# Fill in your LLM endpoint here
 LLM_TIMEOUT = 120
 
 AGENT_ID = "D-1"
@@ -38,7 +39,8 @@ ENABLE_SKILLS = True
 ENABLE_PLANNING = True
 ENABLE_MEMORY = True
 ENABLE_SUMMARIZATION = True
-ENABLE_LOOP = True
+ENABLE_JUDGE = True
+ENABLE_LOOP = False
 MONITOR_ONLY_MODE = False
 
 # Ablation toggles
